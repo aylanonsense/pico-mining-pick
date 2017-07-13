@@ -43,17 +43,18 @@ local entity_classes={
 		height=7,
 		collision_channel=1,
 		standing_platform=nil,
-		-- held_platform=nil,
+		hanging_platform=nil,
+		hanging_dx=0,
+		hanging_dy=0,
 		input_x=0,
 		input_y=0,
 		facing=1,
 		state=nil,
 		state_frames=0,
 		state_data=nil,
-		-- swing_type=nil,
 		animation_frame=nil,
-		-- hitbox_channel=1,
-		-- hitboxes=nil,
+		hitbox_channel=1,
+		hitboxes=nil,
 		state_diagram={
 			standing={
 				animation={{1}},
@@ -75,21 +76,6 @@ local entity_classes={
 				can_switch_facing=true,
 				is_airborne=false
 			},
-			swinging_up={
-				animation={{1}},
-				can_switch_facing=false,
-				is_airborne=false
-			},
-			swinging_side={
-				animation={{1}},
-				can_switch_facing=false,
-				is_airborne=false
-			},
-			swinging_down={
-				animation={{1}},
-				can_switch_facing=false,
-				is_airborne=false
-			},
 			jumping={
 				animation={
 					{10,0,0,4},
@@ -104,7 +90,6 @@ local entity_classes={
 				is_airborne=true
 			},
 			hanging={
-				animation={{1}},
 				can_switch_facing=false,
 				is_airborne=true
 			},
@@ -116,36 +101,42 @@ local entity_classes={
 				is_airborne=false,
 				next="standing"
 			},
-			swinging_up_airborne={
+			swinging_up={
 				animation={
 					{2,2,0,3,{}},
-					{3,2,0,2,{8,4,3,3}},
-					{4,-2,0,2,{}},
+					{3,2,0,2,{4,-8,7,7}},
+					{4,-2,0,2,{-5,-7,7,7}},
 					{5,-2,0,12,{}}
 				},
 				can_switch_facing=false,
 				is_airborne=true,
 				next="falling"
 			},
-			swinging_side_airborne={
+			swinging_side={
 				animation={
 					{6,-2,5,3,{}},
-					{7,2,5,2,{8,4,3,3}},
-					{8,2,5,2,{}},
+					{7,2,5,2,{5,-2,7,7}},
+					{8,2,5,2,{4,4,7,7}},
 					{9,-2,5,12,{}}
 				},
 				can_switch_facing=false,
 				is_airborne=true,
 				next="falling"
 			},
-			swinging_down_airborne={
-				animation={{1}},
+			swinging_down={
+				animation={
+					{12,1,6,3,{}},
+					{13,1,6,2,{5,-2,7,7}},
+					{14,-2,6,2,{4,4,7,7}},
+					{15,-2,6,12,{}}
+				},
 				can_switch_facing=false,
-				is_airborne=true
+				is_airborne=true,
+				next="falling"
 			}
 		},
 		init=function(self)
-			-- self.hitboxes={}
+			self.hitboxes={}
 			self:set_state("standing")
 			self:calc_animation_frame()
 		end,
@@ -157,101 +148,119 @@ local entity_classes={
 			if self.standing_platform then
 				base_vx,base_vy=self.standing_platform.vx,self.standing_platform.vy
 			end
-			-- fall downwards
-			self.vy+=0.05
-			-- jump when x is pressed
-			if button_presses[5]<5 and self.standing_platform then
-				self.vy=base_vy-1.6
-				button_presses[5]=99
-				self:set_state("jumping")
-				self.standing_platform=nil
-			-- land upon touching the ground
-			elseif self.state_data.is_airborne and self.standing_platform then
-				self:set_state("landing")
+			if self.hanging_platform then
+				base_vx,base_vy=self.hanging_platform.vx,self.hanging_platform.vy
 			end
-			-- releasing x causes early deceleration
-			if self.state=="jumping" and self.state_frames>5 and not buttons[5] then
-				self:set_state("falling")
-				if self.vy<base_vy-0.6 then
-					self.vy=base_vy-0.6
+			-- jump while hanging
+			if self.state=="hanging" then
+				self.vx=self.hanging_platform.vx
+				self.vy=self.hanging_platform.vy
+				if button_presses[5]<5 then
+					self:set_state("jumping")
+					self.hanging_platform=nil
+					if self.input_x==0 then
+						self.vy=ternary(self.input_y>0,base_vy+0.3,base_vy-1.5)
+						button_presses[5]=99
+					else
+						self.facing=self.input_x
+						self.vx=base_vx+1.5*self.input_x
+						self.vy=base_vy-0.8
+					end
 				end
 			end
-			local max_speed=1
-			local dec=0.2
-			local max_dec=0.4
-			local turn_around_dec=0.4
-			local acc=0.3
-			if self.state_data.is_airborne then
-				max_speed=1
-				dec=0.02
-				max_dec=0.2
-				turn_around_dec=0.1
-				acc=0.07
-			end
-			if self.input_x!=0 then
-				-- run forward
-				if self.vx==base_vx or (self.vx>base_vx)==(self.input_x>0) then
-					if self.vx==mid(base_vx-max_speed,self.vx,base_vx+max_speed) then
-						self.vx=mid(base_vx-max_speed,self.vx+self.input_x*acc,base_vx+max_speed)
+			if self.state!="hanging" then
+				-- fall downwards
+				self.vy+=0.05
+				-- jump when x is pressed
+				if button_presses[5]<5 and self.standing_platform then
+					self.vy=base_vy-1.6
+					button_presses[5]=99
+					self:set_state("jumping")
+					self.standing_platform=nil
+				-- land upon touching the ground
+				elseif self.state_data.is_airborne and self.standing_platform then
+					self:set_state("landing")
+				end
+				-- releasing x causes early deceleration
+				if self.state=="jumping" and self.state_frames>3 and not buttons[5] then
+					self:set_state("falling")
+					if self.vy<base_vy-0.6 then
+						self.vy=base_vy-0.6
 					end
-					if not self.state_data.is_airborne then
-						self:set_state("running")
+				end
+				local max_speed=1
+				local dec=0.2
+				local max_dec=0.4
+				local turn_around_dec=0.4
+				local acc=0.3
+				if self.state_data.is_airborne then
+					max_speed=ternary(self.state=="jumping",1.5,1)
+					dec=0.02
+					max_dec=0.1
+					turn_around_dec=0.1
+					acc=0.07
+				end
+				if self.input_x!=0 then
+					-- run forward
+					if self.vx==base_vx or (self.vx>base_vx)==(self.input_x>0) then
+						if self.vx==mid(base_vx-max_speed,self.vx,base_vx+max_speed) then
+							self.vx=mid(base_vx-max_speed,self.vx+self.input_x*acc,base_vx+max_speed)
+						end
+						if not self.state_data.is_airborne then
+							self:set_state("running")
+						end
+					-- turn around
+					else
+						self.vx+=self.input_x*turn_around_dec
+						if not self.state_data.is_airborne then
+							self:set_state("turning_around")
+						end
 					end
-				-- turn around
 				else
-					self.vx+=self.input_x*turn_around_dec
-					if not self.state_data.is_airborne then
-						self:set_state("turning_around")
+					-- skid to a stop
+					if self.vx>base_vx then
+						self.vx=max(base_vx,self.vx-dec)
+					else
+						self.vx=min(base_vx,self.vx+dec)
+					end
+					if self.vx!=base_vx and not self.state_data.is_airborne then
+						self:set_state("skidding")
 					end
 				end
-			else
-				-- skid to a stop
-				if self.vx>base_vx then
-					self.vx=max(base_vx,self.vx-dec)
-				else
-					self.vx=min(base_vx,self.vx+dec)
+				-- stand still
+				if self.vx==base_vx and self.input_x==0 and self.standing_platform and self.state!="landing" then
+					self:set_state("standing")
 				end
-				if self.vx!=base_vx and not self.state_data.is_airborne then
-					self:set_state("skidding")
+				-- fall off edges
+				if not self.standing_platform and not self.state_data.is_airborne then
+					self:set_state("falling")
+				end
+				-- switch facing
+				if self.input_x!=0 and self.state_data.can_switch_facing then
+					self.facing=self.input_x
+				end
+				-- don't move too fast horizontally
+				if self.vx>base_vx+max_speed then
+					self.vx=max(base_vx+max_speed,self.vx-max_dec)
+				elseif self.vx<base_vx-max_speed then
+					self.vx=min(base_vx-max_speed,self.vx+max_dec)
+				end
+				-- take a swing when z is pressed
+				if button_presses[4]<1 then
+					if not self.state_data.is_airborne then
+						self.vy=-0.43
+						self.standing_platform=nil
+					end
+					button_presses[4]=99
+					local swing_dir="side"
+					if self.input_y<0 then
+						swing_dir="up"
+					elseif self.input_y>0 then
+						swing_dir="down"
+					end
+					self:set_state("swinging_"..swing_dir)
 				end
 			end
-			-- stand still
-			if self.vx==base_vx and self.input_x==0 and self.standing_platform and self.state!="landing" then
-				self:set_state("standing")
-			end
-			-- fall off edges
-			if not self.standing_platform and not self.state_data.is_airborne then
-				self:set_state("falling")
-			end
-			-- switch facing
-			if self.input_x!=0 and self.state_data.can_switch_facing then
-				self.facing=self.input_x
-			end
-			-- don't move too fast horizontally
-			if self.vx>base_vx+max_speed then
-				self.vx=max(base_vx+max_speed,self.vx-max_dec)
-			elseif self.vx<base_vx-max_speed then
-				self.vx=min(base_vx-max_speed,self.vx+max_dec)
-			end
-			-- take a swing when z is pressed
-			if button_presses[4]<1 then
-				button_presses[4]=99
-				local swing_dir="side"
-				if self.input_y<0 then
-					swing_dir="up"
-				elseif self.input_y>0 then
-					swing_dir="down"
-				end
-				self:set_state("swinging_"..swing_dir..ternary(self.state_data.is_airborne,"_airborne",""))
-				-- if self.state=="default" then
-					-- if self.vy>base_vy-1 then
-					-- 	self.vy=min(-0.5,max(self.vy-1.5,base_vy-1))
-					-- end
-				-- end
-			end
-			-- -- keep velocity within reasonable bounds
-			-- self.vx=mid(base_vx-1,self.vx,base_vx+1)
-			-- self.vy=mid(base_vy-2,self.vy,base_vy+2)
 			-- move and check for collisions
 			self.standing_platform=nil
 			self:apply_velocity()
@@ -259,34 +268,42 @@ local entity_classes={
 			self:calc_animation_frame()
 		end,
 		post_update=function(self)	
-			-- -- calculate hitboxes
-			-- self.hitboxes={}
-			-- if self.state=="swing" then
-			-- 	local i
-			-- 	local hitbox_data=self.animation_frame[2]
-			-- 	for i=1,#hitbox_data,4 do
-			-- 		if self.facing>0 then
-			-- 			add(self.hitboxes,{
-			-- 				x=self.x+hitbox_data[i],
-			-- 				y=self.y+hitbox_data[i+1],
-			-- 				width=hitbox_data[i+2],
-			-- 				height=hitbox_data[i+3]
-			-- 			})
-			-- 		else
-			-- 			add(self.hitboxes,{
-			-- 				x=self.x+self.width-hitbox_data[i]-hitbox_data[i+2],
-			-- 				y=self.y+hitbox_data[i+1],
-			-- 				width=hitbox_data[i+2],
-			-- 				height=hitbox_data[i+3]
-			-- 			})
-			-- 		end
-			-- 	end
-			-- end
+			-- calculate hitboxes
+			self.hitboxes={}
+			local hitbox_data=self.animation_frame[5]
+			if self.state!="hanging" and hitbox_data then
+				local i
+				for i=1,#hitbox_data,4 do
+					if self.facing>0 then
+						add(self.hitboxes,{
+							x=self.x+hitbox_data[i],
+							y=self.y+hitbox_data[i+1],
+							width=hitbox_data[i+2],
+							height=hitbox_data[i+3]
+						})
+					else
+						add(self.hitboxes,{
+							x=self.x+self.width-hitbox_data[i]-hitbox_data[i+2],
+							y=self.y+hitbox_data[i+1],
+							width=hitbox_data[i+2],
+							height=hitbox_data[i+3]
+						})
+					end
+				end
+			end
+			-- hang onto an object
+			if self.state=="hanging" then
+				self.x=self.hanging_platform.x+self.hanging_dx
+				self.y=self.hanging_platform.y+self.hanging_dy
+			end
 		end,
 		draw=function(self)
 			pal(1,0)
 			pal(2,0)
-			-- self:draw_outline()
+			if (self.state=="hanging" and self.state_frames<2) or (self.state!="hanging" and self.state_frames<9) then
+				pal(2,12)
+			end
+			-- pal(2,ternary(self.state=="hanging" or self.state_frames>8,0,12))
 			if self.animation_frame then
 				local sprite=self.animation_frame[1]-1
 				sspr(16*(sprite%8),16*flr(sprite/8),16,16,
@@ -294,10 +311,11 @@ local entity_classes={
 					self.y+(self.animation_frame[3] or 0)-8.5,
 					16,16,self.facing<0)
 			end
-			print(self.vx,self.x+10,self.y-18,12)
-			print(self.state,self.x+10,self.y-10,12)
-			print(self.state_frames,self.x+10,self.y-2,12)
+			-- print(self.vx,self.x+10,self.y-18,12)
+			-- print(self.state,self.x+10,self.y-10,12)
+			-- print(self.state_frames,self.x+10,self.y-2,12)
 			pal()
+			-- self:draw_outline()
 			-- local i
 			-- for i=1,#self.hitboxes do
 			-- 	rect(self.hitboxes[i].x+0.5,
@@ -307,45 +325,50 @@ local entity_classes={
 			-- end
 		end,
 		calc_animation_frame=function(self)
-			local frame
-			-- figure out how long the animation lasts
-			local anim_length=0
-			for frame in all(self.state_data.animation) do
-				anim_length+=(frame[4] or 1)
-			end
-			-- figure out which frame of the animation is active
-			local sum=0
-			for frame in all(self.state_data.animation) do
-				if sum<=self.state_frames%anim_length then
-					self.animation_frame=frame
+			if self.state_data.animation then
+				local frame
+				-- figure out how long the animation lasts
+				local anim_length=0
+				for frame in all(self.state_data.animation) do
+					anim_length+=(frame[4] or 1)
 				end
-				sum+=(frame[4] or 1)
-			end
-			-- change state if animation has looped
-			if sum<=self.state_frames and self.state_data.next then
-				self:set_state(self.state_data.next)
-				self:calc_animation_frame()
+				-- figure out which frame of the animation is active
+				local sum=0
+				for frame in all(self.state_data.animation) do
+					if sum<=self.state_frames%anim_length then
+						self.animation_frame=frame
+					end
+					sum+=(frame[4] or 1)
+				end
+				-- change state if animation has looped
+				if sum<=self.state_frames and self.state_data.next then
+					self:set_state(self.state_data.next)
+					self:calc_animation_frame()
+				end
 			end
 		end,
-		is_hitting=function(self,other)
-			-- local hitbox
-			-- for hitbox in all(self.hitboxes) do
-			-- 	if is_overlapping(hitbox,other) then
-			-- 		return true
-			-- 	end
-			-- end
-			-- return false
+		check_for_hits=function(self,other)
+			local hitbox
+			for hitbox in all(self.hitboxes) do
+				if is_overlapping(hitbox,other) then
+					self:on_hit(other,hitbox)
+					other:on_hurt(self)
+					break
+				end
+			end
 		end,
 		on_collide=function(self,dir,platform)
 			if dir=="bottom" then
 				self.standing_platform=platform
 			end
 		end,
-		on_hit=function(self,other)
-			-- self:set_state("holding")
-			-- self.held_platform=other
-			-- self.vx=other.vx
-			-- self.vy=other.vy
+		on_hit=function(self,other,hitbox)
+			self:set_state("hanging")
+			self.hanging_platform=other
+			self.hanging_dx=flr(self.x-other.x+0.5)
+			self.hanging_dy=flr(self.y-other.y+0.5)
+			self.vx=other.vx
+			self.vy=other.vy
 		end,
 		set_state=function(self,state)
 			if self.state!=state then
@@ -386,8 +409,8 @@ local entity_classes={
 		hurtbox_channel=1,
 		update_priority=9,
 		update=function(self)
-			self.vx=ternary(self.frames_alive%200>100,0.5,-0.5)
-			self.vy=ternary(self.frames_alive%200>100,0.5,-0.5)
+			-- self.vx=ternary(self.frames_alive%200>100,0.5,-0.5)
+			-- self.vy=ternary(self.frames_alive%200>100,0.5,-0.5)
 			self:apply_velocity()
 		end
 	}
@@ -405,12 +428,8 @@ function _init()
 	init_scene("game")
 end
 
--- local skip_frames=0
 function _update()
-	-- skip_frames=increment_counter(skip_frames)
-	-- if skip_frames%10>0 then
-	-- 	return
-	-- end
+	-- skip_frames=skip_frames==nil and 1 or skip_frames+1 if skip_frames%5>0 then return end
 	-- keep track of inputs (because btnp repeats presses)
 	local i
 	for i=0,5 do
@@ -482,7 +501,9 @@ function init_game()
 	create_entity("block",{x=0,y=100,width=128})
 	create_entity("block",{x=0,y=0,height=100})
 	create_entity("block",{x=122,y=0,height=100})
-	create_entity("climbable_block",{x=90,y=90})
+	create_entity("climbable_block",{x=70,y=70})
+	create_entity("climbable_block",{x=40,y=40})
+	create_entity("climbable_block",{x=80,y=30})
 	-- immediately add new entities to the game
 	add_new_entities()
 end
@@ -511,10 +532,8 @@ function update_game()
 	local entity2
 	for entity in all(entities) do
 		for entity2 in all(entities) do
-			if entity!=entity2 and band(entity.hitbox_channel,entity2.hurtbox_channel)>0 and entity:is_hitting(entity2) then
-				-- entity hit entity2
-				entity:on_hit(entity2)
-				entity2:on_hurt(entity)
+			if entity!=entity2 and band(entity.hitbox_channel,entity2.hurtbox_channel)>0 then
+				entity:check_for_hits(entity2)
 			end
 		end
 	end
@@ -621,8 +640,11 @@ function create_entity(class_name,args)
 			end
 		end,
 		on_collide=noop,
-		is_hitting=function(self,other)
-			return is_overlapping(self,other)
+		check_for_hits=function(self,other)
+			if is_overlapping(self,other) then
+				self:on_hit(other)
+				other:on_hurt(self)
+			end
 		end,
 		on_hurt=noop,
 		on_hit=noop
@@ -813,37 +835,37 @@ scenes={
 
 __gfx__
 11111111111111111111111111111111111111177111111111111122222221111111111111111111111111111111111111111111111111111111111111111111
-10000000000000011000000000000001100000007770000110007777222222211000220000000001100000dddddd000110000100dd6600011000010000000001
-100000000000000110000000000000011000000007770001100777220000002210020000000000011000ddddd11100011001111100dd66011001111100000001
-10000000000000011000000000000001100000000077700110777000000000011022000000000001100ddd500100000110000100000066611000010000000001
-1000000000000001100000000000000110000000000670011675000000000001122000000000000110dd00050180000110000800000556661000018000000001
-1000000100000001100001000000000110000100005067011760500001000001122000000100000110d000005080000110008000555000661000080000000001
-100000010000000110000100000000011000010055007601667005000100000112200000010000011d0000000080000110008000000000661000080000000001
-100001ddd10000011001111100000001100111450000670166000051111100011220000111110001100000000080000110008000000000061000800000000001
-10000dd1000000011000010000000001100044440000260166000044440000011220000001000001100000000800000110008000000000061000800000000001
-1000dd44400000011000044400000001100044490000260116000004440000011262000444000001100000000800000110000800000000061000800050000006
-100ddd44400000011000044400000601100099990000220116000004990000011066000444000001100000008000000110000080000000011000080005000006
+10000000000000011000000000000001100000007770000110007777222222211000220000000001100000666666000110022222666600011000010000000001
+10000000000000011000000000000001100000000777000110077722000000221002000000000001100066ddd111000112211122226667011001111100000001
+10000000000000011000000000000001100000000077700110777000000000011022000000000001100ddd500100000110000100000076711000010000000201
+1000000000000001100000000000000110000000000670011675000000000001122000000000000110dd00050444000110004440000556771000044400000021
+1000000100000001100001000000000110000100005067011760500001000001122000000100000110d200005444000110094440555000771000944400000021
+100000010000000110000100000000011000010055007601667005000100000112200000010000011d2000000999000110099900000000771000999000000002
+100001ddd10000011001111100000001100111450000670166000051111100011220000111110001122000000999000110099900000000071009999000000002
+10000dd1000000011000010000000001100044440000260166000044440000011220000001000001120000009940000110049900000000071004990000000022
+1000dd44400000011000044400000001100044490000260116000004440000011262000444000001120000004440000110004440000000071004440050000026
+100ddd44400000011000044400000601100099990000220116000004990000011066000444000001100000040400000110004004000000011004040005000026
 100dd499940000011000499540006601100099900002220110000009999000011066d00499000001100000000000000110000000000000011000000000500066
-10dd0499900000011000499450d660011000999000222001100000049990000110066dd549900001100000000000000110000000000000011000000000050661
-10d0044990000001100049ddd5660001100049900220000110000004999000011000066ddd900001100000000000000110000000000000011000000000006661
-10d0044440000001100ddddd66000001100444422000000110000004444000011000000dddddd001100000000000000110000000000000011000000006666601
-11111411411111111114114111111111111111411111111111111114114111111111111411411111111111111111111111111111111111111111116666661111
-11111111111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000000000000000000000
-10000000010000011000000000000001100000000000000108000800080008000800080008000800080008000800080008000800080008000800080008000800
-10000001111100011000000000000001100000000000000100808000008080000080800000808000008080000080800000808000008080000080800000808000
-10000000010000011000000100000001100000010000000100080000000800000008000000080000000800000008000000080000000800000008000000080000
-10000000018000011000000100000001100000010000000100808000008080000080800000808000008080000080800000808000008080000080800000808000
-10000000008000011000011111000001100001111100000108000800080008000800080008000800080008000800080008000800080008000800080008000800
-10000000008000011000000100000001100000010000000100000000000000000000000000000000000000000000000000000000000000000000000000000000
-1d0000005800000110000001000000011000000dd000000100000000000000000000000000000000000000000000000000000000000000000000000000000000
-1dd000050800000110000d9490000001100000444d00000100000000000000000000000000000000000000000000000000000000000000000000000000000000
-10dd0050080000011000d44999000001100004499400000108000800080008000800080008000800080008000800080008000800080008000800080008000800
-10ddd500080000011000d49999d00001100004949400000100808000008080000080800000808000008080000080800000808000008080000080800000808000
-100ddd00000000011000044994d00001100004994900000100080000000800000008000000080000000800000008000000080000000800000008000000080000
-1000666000000001100000444d00000110000d444000000100808000008080000080800000808000008080000080800000808000008080000080800000808000
-10000066000000011000000000000001100000dd0000000108000800080008000800080008000800080008000800080008000800080008000800080008000800
-10000000660000011000000000000001100000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000
-11111111111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000000000000000000000
+10dd0499900000011200499450d660011000999000222001100000049990000110066dd549900001100000000000000110000000000000011000000000050661
+10d0044990000001102249ddd5660001100049900220000110000004999000011000066ddd900001100000000000000110000000000000011000000000006771
+10d0044440000001100ddddd66000001100444422000000110000004444000011000000dddddd001100000000000000110000000000000011000000007777601
+11111411411111111114114111111111111111411111111111111114114111111111111411411111111111111111111111111111111111111111117777771111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110000000000000000
+10000000010000011000000000000001100000000000000112222ddddd000001100000002200000110000001111100011000000ddd1100010800080008000800
+1000000111110001100000000000000110000000000000011000222dddd6000110000000002200011000000001000001100006dddddd00010080800000808000
+100000000100000110000001000000011000000100000001100004440d5d60011000000000022001100000000100000110006dd4440000010008000000080000
+10000000044400011000000100000001100000010000000110000444550d6601100000444002220110000004440000011006dd54440000010080800000808000
+100000000444000110000111110000011000011111000001100049454000d601100009444000220110000004440000011066d045490000010800080008000800
+10000000099900011000000100000001100000010000000110004999000006611000999900002221100000999990000110660099999000010000000000000000
+160000005999000110000001000000011000000dd000000110004499000000611000499994000261170000949990000110660009994000010000000000000000
+166000054990000110000d9490000001100000444d00000110004444000000011000444945000261170000454940000110620004444000010000000000000000
+106d0050444000011000d44999000001100004499400000110000400400000011004000400500661177000500040000110620004004000010800080008000800
+106dd500404000011000d49999d00001100004949400000110000000000000011000000000050671177005000000000110220000000000010080800000808000
+1006dd00000000011000044994d00001100004994900000110000000000000011000000000005761177750000000000110220000000000010008000000080000
+1000ddd000000001100000444d00000110000d444000000110000000000000011000000000006671107760000000000110020000000000010080800000808000
+100000dd200000011000000000000001100000dd0000000110000000000000011000000000077701100776000000000110022000000000010800080008000800
+10000000dd2222221000000000000001100000000000000110000000000000011000000000777001100067662220022210002200000000010000000000000000
+11111111112222111111111111111111111111111111111111111111111111111111111177771111111111666622221111111122111111110000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 08000800080008000800080008000800080008000800080008000800080008000800080008000800080008000800080008000800080008000800080008000800
 00808000008080000080800000808000008080000080800000808000008080000080800000808000008080000080800000808000008080000080800000808000
